@@ -1,0 +1,14 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "toss-inspired-ux",
+  "version": "0.1.0",
+  "description": "Product UX guidance inspired by the design principles Toss has shared publicly: one thing per screen, continuous flow, purposeful motion, plain copy, no dark patterns. Unofficial.",
+  "author": {
+    "name": "JaceProgramming",
+    "url": "https://github.com/JaceProgramming"
+  },
+  "homepage": "https://github.com/JaceProgramming/toss-inspired-ux",
+  "repository": "https://github.com/JaceProgramming/toss-inspired-ux",
+  "license": "MIT",
+  "keywords": ["ux", "ui", "design", "ux-writing", "korean", "accessibility", "motion"]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "toss-inspired-ux",
+  "displayName": "Toss-inspired UX",
+  "description": "Product UX guidance inspired by the design principles Toss has shared publicly: one thing per screen, continuous flow, purposeful motion, plain copy, no dark patterns. Unofficial.",
+  "author": {
+    "name": "JaceProgramming",
+    "url": "https://github.com/JaceProgramming"
+  },
+  "homepage": "https://github.com/JaceProgramming/toss-inspired-ux",
+  "repository": "https://github.com/JaceProgramming/toss-inspired-ux",
+  "license": "MIT",
+  "keywords": ["ux", "ui", "design", "ux-writing", "korean", "accessibility", "motion"]
+}

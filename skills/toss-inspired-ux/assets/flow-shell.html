@@ -1,0 +1,183 @@
+<!doctype html>
+<!--
+  Flow shell: a working single-file step flow with the plumbing that is easy to get wrong.
+  One question per screen, a pinned primary button, browser Back that moves one step and keeps
+  answers, direction-aware transitions, a toast that goes away by itself, a busy button that
+  cannot be submitted twice, and reduced-motion support.
+
+  Plain HTML projects: copy it and replace the `steps` array and the two `api` functions.
+  Framework projects: read it as a description of behaviour and rebuild it with the framework's
+  router and components. Colours and sizes are placeholders (see references/visual-defaults.md).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>Sign up</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #FFFFFF; --fill: #EEF0F3; --text: #17191C; --text-2: #4B5360; --text-off: #A9B0BA;
+    --accent: #2563EB; --on-accent: #FFFFFF; --danger: #CC2431;
+    --font: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto, system-ui, sans-serif;
+    --dur-fast: 150ms; --dur-screen: 350ms; --shift: 24px; --press: 0.97;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1); --ease-in: cubic-bezier(0.32, 0, 0.67, 0);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111215; --fill: #25272D; --text: #F3F4F6; --text-2: #B7BDC7; --text-off: #5A616C; --accent: #2F6BEB; --danger: #FF6B76; }
+  }
+  @media (prefers-reduced-motion: reduce) { :root { --shift: 0px; --press: 1; --dur-screen: 120ms; } }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 400 1.0625rem/1.5 var(--font); word-break: keep-all; overflow-wrap: anywhere; -webkit-font-smoothing: antialiased; }
+  .app { max-width: 480px; min-height: 100dvh; margin: 0 auto; display: flex; flex-direction: column; }
+  .topbar { height: 56px; display: flex; align-items: center; padding: 0 4px; }
+  .icon-button { width: 48px; height: 48px; border: 0; border-radius: 12px; background: none; color: inherit; font-size: 1.375rem; }
+  .screen { flex: 1; padding: 8px 20px 24px; outline: none; view-transition-name: screen; }   /* only this region animates */
+  h1 { margin: 0 0 8px; font: 700 1.5rem/1.35 var(--font); text-wrap: balance; outline: none; }
+  .help { margin: 0 0 28px; color: var(--text-2); font-size: 0.9375rem; }
+  .field { width: 100%; min-height: 56px; padding: 0 16px; border: 0; border-radius: 12px; background: var(--fill); color: inherit; font: inherit; }
+  .field:focus-visible, .icon-button:focus-visible, .cta:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .field-error { min-height: 1.5em; margin: 8px 0 0; color: var(--danger); font-size: 0.9375rem; }
+  .cta-bar { position: sticky; bottom: 0; padding: 12px 20px max(16px, env(safe-area-inset-bottom)); background: linear-gradient(to top, var(--bg) 75%, transparent); }
+  .cta { width: 100%; min-height: 56px; border: 0; border-radius: 16px; background: var(--accent); color: var(--on-accent); font: 600 1.0625rem/1.2 var(--font); }
+  .cta:disabled { background: var(--fill); color: var(--text-off); }
+  .pressable { transition: transform var(--dur-fast) var(--ease-out); touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  .pressable:active:not(:disabled) { transform: scale(var(--press)); transition-duration: 100ms; }
+  .toast { position: fixed; left: 50%; bottom: calc(96px + env(safe-area-inset-bottom)); translate: -50% 8px; max-width: calc(100% - 40px); padding: 14px 18px; border-radius: 14px; background: var(--text); color: var(--bg); font-size: 0.9375rem; opacity: 0; pointer-events: none; transition: opacity var(--dur-fast) linear, translate var(--dur-fast) var(--ease-out); }
+  .toast.show { opacity: 1; translate: -50% 0; }
+
+  /* forward: new content arrives from the trailing edge. back: the exact reverse. */
+  ::view-transition-old(screen) { animation: var(--dur-fast) var(--ease-in) both out-fwd; }
+  ::view-transition-new(screen) { animation: var(--dur-screen) var(--ease-out) both in-fwd; }
+  html[data-nav="back"]::view-transition-old(screen) { animation-name: out-back; }
+  html[data-nav="back"]::view-transition-new(screen) { animation-name: in-back; }
+  @keyframes in-fwd   { from { opacity: 0; transform: translateX(var(--shift)); } }
+  @keyframes out-fwd  { to   { opacity: 0; transform: translateX(calc(var(--shift) * -0.5)); } }
+  @keyframes in-back  { from { opacity: 0; transform: translateX(calc(var(--shift) * -1)); } }
+  @keyframes out-back { to   { opacity: 0; transform: translateX(calc(var(--shift) * 0.5)); } }
+</style>
+</head>
+<body>
+<form class="app" id="flow" novalidate>
+  <header class="topbar"><button type="button" class="icon-button pressable" id="back" aria-label="Back" hidden>←</button></header>
+  <main class="screen" id="screen"></main>
+  <footer class="cta-bar"><button type="submit" class="cta pressable" id="cta"></button></footer>
+</form>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+// ---------- 1. What to replace: the steps and the server calls ----------
+// A step has one job. `field` makes it a question; without it the step only informs.
+// `title`, `help` and `cta` may be functions of the answers so far, so later screens can carry earlier answers.
+const steps = [
+  { id: 'start', title: 'Get your first week free', help: 'It takes about a minute. We ask for your name and email, nothing else.', cta: 'Get started' },
+  { id: 'name', title: "What's your name?", help: 'We use it to greet you.', cta: 'Next',
+    field: { key: 'name', type: 'text', autocomplete: 'name', label: 'Name' },
+    check: (a) => (a.name || '').length >= 2 || 'Enter at least 2 characters.' },
+  { id: 'email', title: (a) => `Where should we reach you, ${a.name}?`, help: 'Your receipt and sign-in link go here.', cta: 'Create my account',
+    field: { key: 'email', type: 'email', autocomplete: 'email', inputmode: 'email', label: 'Email' },
+    check: (a) => /^\S+@\S+\.\S+$/.test(a.email || '') || 'Enter an email like name@example.com.',
+    submit: (a) => api.createAccount(a) },                      // async: the button shows progress while it runs
+  { id: 'done', final: true, title: (a) => `You're in, ${a.name}`, help: 'Your free week starts today. We sent the details to your email.', cta: 'Done' },
+];
+const api = {
+  // Replace with real requests. Reject with an Error whose message is written for the user.
+  createAccount: (answers) => new Promise((resolve) => setTimeout(resolve, 900)),
+  // Where "Done" goes: back to wherever the user started this flow.
+  finish: () => toast('Replace api.finish with a return to where the flow started.'),
+};
+
+// ---------- 2. State: answers survive Back, reload and leaving the tab ----------
+const STORE = 'flow-shell-answers';
+const answers = JSON.parse(sessionStorage.getItem(STORE) || '{}');
+const remember = () => sessionStorage.setItem(STORE, JSON.stringify(answers));
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const say = (v) => esc(typeof v === 'function' ? v(answers) : v);
+let current = 0;
+
+// ---------- 3. Rendering: the frame stays, only #screen changes ----------
+function render(i) {
+  current = i;
+  const step = steps[i], f = step.field;
+  $('screen').innerHTML =
+    `<h1 tabindex="-1">${say(step.title)}</h1>` + (step.help ? `<p class="help">${say(step.help)}</p>` : '') +
+    (f ? `<input class="field" id="field" type="${f.type}" aria-label="${esc(f.label)}" aria-describedby="error"
+            ${f.autocomplete ? `autocomplete="${f.autocomplete}"` : ''} ${f.inputmode ? `inputmode="${f.inputmode}"` : ''}
+            value="${esc(answers[f.key] || '')}"><p class="field-error" id="error" role="alert"></p>` : '');
+  $('cta').textContent = typeof step.cta === 'function' ? step.cta(answers) : step.cta;
+  $('back').hidden = i === 0 || !!step.final;                   // nothing to go back to after the result
+  document.title = $('screen').querySelector('h1').textContent;
+  // Focus follows the task: the input if there is one, otherwise the title so screen readers announce the new screen.
+  ($('field') || $('screen').querySelector('h1')).focus({ preventScroll: true });
+}
+
+// ---------- 4. Navigation: one history entry per step, so browser Back moves one step ----------
+function show(i, direction) {
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!document.startViewTransition || reduce) { render(i); return; }
+  document.documentElement.dataset.nav = direction;
+  const t = document.startViewTransition(() => render(i));
+  t.ready.catch(() => {});                                       // a skipped animation still renders the step
+  t.finished.finally(() => { delete document.documentElement.dataset.nav; });
+}
+function advance() {
+  const next = current + 1;
+  history.pushState({ step: next }, '', `#${steps[next].id}`);
+  show(next, 'forward');
+}
+addEventListener('popstate', (e) => {
+  const asked = e.state?.step ?? 0;
+  const to = Math.min(asked, firstUnanswered());                 // never land past an unanswered question
+  if (to !== asked) history.replaceState({ step: to }, '', `#${steps[to].id}`);
+  show(to, to < current ? 'back' : 'forward');
+});
+const firstUnanswered = () => { const i = steps.findIndex((s) => s.check && s.check(answers) !== true); return i === -1 ? steps.length - 1 : i; };
+$('back').addEventListener('click', () => history.back());
+
+// ---------- 5. The one primary action ----------
+$('flow').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const step = steps[current], cta = $('cta');
+  if (cta.getAttribute('aria-busy') === 'true') return;         // a second tap does nothing
+  if (step.final) { sessionStorage.removeItem(STORE); api.finish(); return; }
+  if (step.field) { answers[step.field.key] = $('field').value.trim(); remember(); }
+  const problem = step.check ? step.check(answers) : true;
+  if (problem !== true) { $('error').textContent = problem; $('field').focus(); return; }
+  if (step.submit) {
+    const label = cta.textContent;
+    cta.setAttribute('aria-busy', 'true'); cta.textContent = 'One moment…';   // progress in place, the screen stays
+    try { await step.submit(answers); }
+    catch (err) { toast(err.message || 'Something went wrong on our side. Try again in a moment.'); return; }   // what was typed is still there
+    finally { cta.removeAttribute('aria-busy'); cta.textContent = label; }
+  }
+  advance();
+});
+$('screen').addEventListener('input', () => { const err = $('error'); if (err) err.textContent = ''; });
+
+// ---------- 6. Toast: one at a time, and it always goes away ----------
+let toastTimer;
+function toast(message, ms = 3000) {
+  const el = $('toast');
+  clearTimeout(toastTimer);
+  el.textContent = message;                                      // role="status" announces it
+  el.classList.add('show');
+  toastTimer = setTimeout(() => el.classList.remove('show'), ms);
+}
+
+// ---------- 7. Start: restore the step this history entry belongs to ----------
+document.addEventListener('touchstart', () => {}, { passive: true });   // lets :active apply on iOS Safari
+const start = Math.min(history.state?.step ?? 0, firstUnanswered());
+history.replaceState({ step: start }, '', start ? `#${steps[start].id}` : location.pathname + location.search);
+render(start);
+
+// iOS Safari keeps the layout size when the keyboard opens, so a sticky bar can end up under it.
+// Lift the bar by the covered height. Check this on a real device before relying on it.
+if (window.visualViewport) {
+  const lift = () => { const covered = Math.max(0, innerHeight - visualViewport.height - visualViewport.offsetTop); document.querySelector('.cta-bar').style.transform = covered ? `translateY(-${covered}px)` : ''; };
+  visualViewport.addEventListener('resize', lift); visualViewport.addEventListener('scroll', lift);
+}
+</script>
+</body>
+</html>

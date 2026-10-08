@@ -1,0 +1,14 @@
+{
+  "name": "toss-inspired-ux",
+  "description": "Product UX guidance for coding agents, inspired by the design principles Toss has shared publicly. Unofficial.",
+  "owner": {
+    "name": "JaceProgramming"
+  },
+  "plugins": [
+    {
+      "name": "toss-inspired-ux",
+      "source": "./",
+      "description": "One thing per screen, continuous flow, purposeful motion, plain copy (Korean 해요체 rules included), humane errors, no dark patterns."
+    }
+  ]
+}
